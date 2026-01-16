@@ -1,0 +1,331 @@
+-- =========================================================
+-- darkiness3223 | LOCAL SCRIPT (TRONCO ONLY)
+-- =========================================================
+
+-- SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- =========================================================
+-- CONFIG
+-- =========================================================
+local lastESP = 0
+local ESP_DELAY = 0.3 -- atualiza 3x por segundo
+local lastAim = 0
+local AIM_DELAY = 0.1 -- 10x por segundo
+
+
+local FOV_RADIUS = 150
+local TEAM_CHECK = true
+local WALL_CHECK = true
+local ESP_ENABLED = false
+local AIMBOT_ENABLED = false
+local UI_OPEN = true
+
+-- =========================================================
+-- UTILS
+-- =========================================================
+local function isAlive(character)
+	if not character then return false end
+	local hum = character:FindFirstChildOfClass("Humanoid")
+	return hum and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Dead
+end
+
+local function getTorso(character)
+	return character:FindFirstChild("HumanoidRootPart")
+		or character:FindFirstChild("UpperTorso")
+		or character:FindFirstChild("Torso")
+end
+
+local function hasLineOfSight(char, part)
+	if not WALL_CHECK then return true end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Blacklist
+	params.FilterDescendantsInstances = {player.Character, char}
+
+	local origin = camera.CFrame.Position
+	local dir = part.Position - origin
+	return workspace:Raycast(origin, dir, params) == nil
+end
+
+local function isValidTarget(plr)
+	if plr == player then return false end
+	if not plr.Character then return false end
+	if not isAlive(plr.Character) then return false end
+	if TEAM_CHECK and plr.Team == player.Team then return false end
+
+	local torso = getTorso(plr.Character)
+	if not torso then return false end
+	if not hasLineOfSight(plr.Character, torso) then return false end
+
+	return true
+end
+
+local function getClosestPlayerInFOV()
+	local closest, shortest = nil, math.huge
+	local mousePos = UserInputService:GetMouseLocation()
+
+	for _, plr in pairs(Players:GetPlayers()) do
+		if isValidTarget(plr) then
+			local torso = getTorso(plr.Character)
+			local pos, onScreen = camera:WorldToViewportPoint(torso.Position)
+
+			if onScreen then
+				local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+				if dist <= FOV_RADIUS and dist < shortest then
+					shortest = dist
+					closest = plr
+				end
+			end
+		end
+	end
+	return closest
+end
+
+-- =========================================================
+-- UI
+-- =========================================================
+local gui = Instance.new("ScreenGui", player.PlayerGui)
+gui.Name = "darkiness3223"
+gui.ResetOnSpawn = false
+
+local blur = Instance.new("BlurEffect", Lighting)
+blur.Size = 10
+blur.Enabled = true
+
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.fromScale(0.35, 0.45)
+main.Position = UDim2.fromScale(0.5, 0.5)
+main.AnchorPoint = Vector2.new(0.5, 0.5)
+main.BackgroundColor3 = Color3.fromRGB(18,18,18)
+Instance.new("UICorner", main).CornerRadius = UDim.new(0,18)
+Instance.new("UIStroke", main).Color = Color3.fromRGB(60,60,60)
+
+-- Drag
+do
+	local dragging, dragStart, startPos
+	main.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+			dragStart = i.Position
+			startPos = main.Position
+		end
+	end)
+	main.InputEnded:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = false
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(i)
+		if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+			local delta = i.Position - dragStart
+			main.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + delta.X,
+				startPos.Y.Scale, startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+end
+
+local title = Instance.new("TextLabel", main)
+title.Size = UDim2.fromScale(1,0.12)
+title.Text = "darkiness3223"
+title.Font = Enum.Font.GothamBold
+title.TextScaled = true
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.new(1,1,1)
+
+local container = Instance.new("Frame", main)
+container.Size = UDim2.fromScale(1,0.88)
+container.Position = UDim2.fromScale(0,0.12)
+container.BackgroundTransparency = 1
+local layout = Instance.new("UIListLayout", container)
+layout.Padding = UDim.new(0,10)
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local function createToggle(text, callback)
+	local btn = Instance.new("TextButton", container)
+	btn.Size = UDim2.fromScale(0.85,0.11)
+	btn.BackgroundColor3 = Color3.fromRGB(30,30,30)
+	btn.Text = text .. ": OFF"
+	btn.Font = Enum.Font.GothamBold
+	btn.TextScaled = true
+	btn.TextColor3 = Color3.new(1,1,1)
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0,12)
+
+	local state = false
+	btn.MouseButton1Click:Connect(function()
+		state = not state
+		btn.Text = text .. (state and ": ON" or ": OFF")
+		btn.BackgroundColor3 = state and Color3.fromRGB(0,140,90) or Color3.fromRGB(30,30,30)
+		callback(state)
+	end)
+end
+
+createToggle("AIMBOT", function(v)
+	AIMBOT_ENABLED = v
+	fovCircle.Visible = v
+end)
+
+createToggle("ESP (CHAMS)", function(v)
+	ESP_ENABLED = v
+end)
+
+createToggle("TEAM CHECK", function(v)
+	TEAM_CHECK = v
+end)
+
+createToggle("WALL CHECK", function(v)
+	WALL_CHECK = v
+end)
+
+-- =========================================================
+-- FOV CIRCLE
+-- =========================================================
+fovCircle = Instance.new("Frame", gui)
+fovCircle.Size = UDim2.fromOffset(FOV_RADIUS*2, FOV_RADIUS*2)
+fovCircle.AnchorPoint = Vector2.new(0.5,0.5)
+fovCircle.BackgroundTransparency = 1
+fovCircle.Visible = false
+Instance.new("UICorner", fovCircle).CornerRadius = UDim.new(1,0)
+local stroke = Instance.new("UIStroke", fovCircle)
+stroke.Thickness = 2
+stroke.Color = Color3.fromRGB(0,255,0)
+
+-- =========================================================
+-- ESP (CHAMS)
+-- =========================================================
+local espCache = {}
+
+local function removeESP(plr)
+	if espCache[plr] then
+		espCache[plr]:Destroy()
+		espCache[plr] = nil
+	end
+end
+
+local function updateESP()
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character and isAlive(plr.Character) then
+			if not espCache[plr] then
+				local h = Instance.new("Highlight")
+				h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+				h.FillTransparency = 0.4
+				h.OutlineTransparency = 0
+				h.Parent = gui
+				espCache[plr] = h
+			end
+			local h = espCache[plr]
+			h.Adornee = plr.Character
+			h.Enabled = ESP_ENABLED
+			h.FillColor = (TEAM_CHECK and plr.Team == player.Team)
+				and Color3.fromRGB(0,170,255)
+				or Color3.fromRGB(255,0,0)
+		else
+			removeESP(plr)
+		end
+	end
+end
+
+Players.PlayerRemoving:Connect(removeESP)
+
+-- =========================================================
+-- INPUT
+-- =========================================================
+local function toggleUI()
+	UI_OPEN = not UI_OPEN
+	main.Visible = UI_OPEN
+	blur.Enabled = UI_OPEN
+end
+
+UserInputService.InputBegan:Connect(function(i,gp)
+	if gp then return end
+	if i.KeyCode == Enum.KeyCode.K then toggleUI() end
+	if i.KeyCode == Enum.KeyCode.T then
+		AIMBOT_ENABLED = not AIMBOT_ENABLED
+		fovCircle.Visible = AIMBOT_ENABLED
+	end
+end)
+
+-- =========================================================
+-- LOOP
+-- =========================================================
+RunService.RenderStepped:Connect(function()
+	fovCircle.Position = UDim2.fromOffset(
+		camera.ViewportSize.X/2,
+		camera.ViewportSize.Y/2
+	)
+
+	local now = os.clock()
+if AIMBOT_ENABLED and now - lastAim >= AIM_DELAY then
+    lastAim = now
+		local target = getClosestPlayerInFOV()
+		if target then
+			local torso = getTorso(target.Character)
+			if torso then
+				camera.CFrame = CFrame.new(
+					camera.CFrame.Position,
+					torso.Position
+				)
+			end
+		end
+	end
+
+	local now = os.clock()
+ if now - lastESP >= ESP_DELAY then
+    lastESP = now
+    updateESP()
+end
+
+end)
+
+-- DRAG PC + MOBILE (FUNCIONAL)
+do
+	local dragging = false
+	local dragStart
+	local startPos
+
+	local function startDrag(input)
+		dragging = true
+		dragStart = input.Position
+		startPos = main.Position
+	end
+
+	local function endDrag()
+		dragging = false
+	end
+
+	main.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+			startDrag(input)
+		end
+	end)
+
+	main.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+			endDrag()
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (
+			input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch
+		) then
+			local delta = input.Position - dragStart
+			main.Position = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+end
